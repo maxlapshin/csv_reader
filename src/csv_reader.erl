@@ -6,7 +6,7 @@
 -export([init/2, next/2]).
 -export([date_to_ms/2]).
 
--export([start_loader/3, start_splitter/1, start_formatter/2]).
+-export([start_loader/3]).
 
 date_to_ms({YY,MM,DD},{H,M,S,MS}) ->
   date_to_ms_nif(YY, MM, DD, H, M, S, MS);
@@ -22,26 +22,35 @@ date_to_ms_nif(YY, MM, DD, H, M, S, MS) ->
   Timestamp*1000 + MS.
   
 init_nif() ->
-  % Path = filename:dirname(code:which(?MODULE)) ++ "/../priv",
-  % Load = erlang:load_nif(Path ++ "/csv_reader", 0),
-  % io:format("Load csv_reader: ~p~n", [Load]),
+  Path = filename:dirname(code:which(?MODULE)) ++ "/../priv",
+  Load = erlang:load_nif(Path ++ "/csv_reader", 0),
+  io:format("Load csv_reader: ~p~n", [Load]),
   ok.
 
 
 init(Path, Options) ->
   % {ok, Reader} = csv_open(Path, Options),
   % {ok, Reader}.
+  ets:new(csv_entries, [public, named_table]),
   {ok, Reader} = proc_lib:start(?MODULE, start_loader, [Path, Options, self()]),
   {ok, Reader}.
 
 -record(loader, {
   file,
+  offset,
   header,
   cols,
   splitter,
   formatter,
   client
 }).
+
+
+parse_line(Bin) ->
+  case binary:split(Bin, <<"\n">>) of
+    [A,B] -> {A, B};
+    [A] -> {undefined, A}
+  end.
 
 start_loader(Path, _Options, Parent) ->
 
@@ -62,119 +71,43 @@ start_loader0(Path, _Options, Parent) ->
   
   Header = binary:split(Header2, [<<",">>], [global]),
   file:position(F, size(Header1)),
-  {ok, Formatter} = proc_lib:start_link(?MODULE, start_formatter, [length(Header), Parent]),
-  erlang:monitor(process, Formatter),
-  {ok, Splitter} = proc_lib:start_link(?MODULE, start_splitter, [Formatter]),
-  erlang:monitor(process, Splitter),
   ?D({init_loader,Path,Parent, Header}),
   Loader = #loader{
     file = F,
     header = Header,
+    offset = size(Header1),
     cols = length(Header),
-    splitter = Splitter,
-    formatter = Formatter,
     client = Parent
   },
   loader(Loader).
 
 
-loader(#loader{splitter = Splitter, file = F, formatter = Formatter, client = Client} = Loader) ->
-  case process_info(Splitter, message_queue_len) of
-    {message_queue_len, Len} when Len > 20 ->
-      ?D({loader_delay, Len}),
-      timer:sleep(100),
-      loader(Loader);
-    {message_queue_len, _} ->
-      case file:read(F, 128*1024) of
-        {ok, Bin} ->
-          % ?D({loader, size(Bin)}),
-          io_lib:fread("~s,~4..0B~2..0B~2..0B,~2..0B:~2..0B:~2..0B.~3..0B,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~s~n", Bin),
-          % Splitter ! {bin, Bin},
-          loader(Loader);
-        eof ->
-          ?D({loader,eof}),
-          Splitter ! eof,
-          % receive
-          %   {'DOWN', _, _, Splitter, _} -> ok
-          % end,
-          % ?D(splitter_down),
-          % receive
-          %   {'DOWN', _, _, Formatter, _} -> ok
-          % end,
-          Client ! eof,
-          ok
-      end
-  end.    
-
-
-start_splitter(Formatter) ->
-  Pattern = binary:compile_pattern([<<"\n">>, <<",">>]),
-  proc_lib:init_ack({ok, self()}),
-  splitter(Pattern, Formatter).
-
-splitter(Pattern, Formatter) ->
-  receive
-    {bin, Bin} ->
-      % ?D({split,size(Bin)}),
-      % [Head1|Parts1] = binary:split(Bin, Pattern, [global]),
-      % {Parts2, [Rem]} = lists:split(length(Parts1) - 1, Parts1),
-      % Head2 = case Remaining of
-      %   <<>> -> Head1;
-      %   _ -> <<Remaining/binary, Head1/binary>>
-      % end,
-      % Parts3 = [Head2|Parts2],
-      Parts = binary:split(Bin, Pattern, [global]),
-      % ?D({send, length(Parts)}),
-      send_splitted_parts(Formatter, Parts),
-      splitter(Pattern, Formatter);
+loader(#loader{splitter = Splitter, file = F, formatter = Formatter, client = Client, offset = Offset} = Loader) ->
+  case file:pread(F, Offset, 128*1024) of
+    {ok, Bin} ->
+      {Lines, Rest} = split_lines(Bin),
+      ?D({loader, size(Bin), length(Lines), size(Rest)}),
+      % ?D({loader, size(Bin)}),
+      % io_lib:fread("~s,~4..0B~2..0B~2..0B,~2..0B:~2..0B:~2..0B.~3..0B,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~f,~s~n", Bin),
+      % Splitter ! {bin, Bin},
+      loader(Loader#loader{offset = Offset + size(Bin) - size(Rest)});
     eof ->
-      ?D({splitter, eof}),
-      Formatter ! eof,
+      ?D({loader,eof}),
+      Client ! eof,
       ok
-  end.      
+  end.
 
-send_splitted_parts(Formatter, Parts) ->
-  case process_info(Formatter, message_queue_len) of
-    {message_queue_len, Len} when Len > 20 ->
-      timer:sleep(300),
-      ?D({splitter_delay,Len}),
-      send_splitted_parts(Formatter, Parts);
-    {message_queue_len, _} ->
-      Formatter ! {parts, Parts},
-      ok
-  end.    
 
-start_formatter(Cols, Consumer) ->
-  proc_lib:init_ack({ok, self()}),
-  formatter(Cols, Consumer, [], <<>>).
+split_lines(Bin) -> split_lines(Bin, []).
 
-formatter(Cols, Consumer, Acc, Rem) ->
-  receive
-    {parts, [H|T] = Parts1} ->
-      Parts2 = case Rem of
-        <<>> -> Parts1;
-        _ -> [<<Rem/binary, H/binary>>|T]
-      end,
-      Parts3 = Acc ++ Parts2,
-      Acc2 = split_and_send(Consumer, Cols, Parts3),
-      {Acc3, [Rem1]} = lists:split(length(Acc2) - 1, Acc2),
-      formatter(Cols, Consumer, Acc3, Rem1);
-      % formatter(Cols, Consumer, Acc, Rem);
-    eof ->
-      case {Acc, Rem} of
-        {[], <<>>} -> ok;
-        _ -> Consumer ! {csv, Acc ++ [Rem]}
-      end,
-      ok
-  end.    
+split_lines(Bin, Acc) ->
+  case parse_line(Bin) of
+    {undefined, Rest} ->
+      {lists:reverse(Acc), Rest};
+    {Line, Rest} ->
+      split_lines(Rest, [Line|Acc])
+  end.
 
-split_and_send(Consumer, Cols, Parts) when length(Parts) > Cols ->
-  {Line, Rest} = lists:split(Cols, Parts),
-  Consumer ! {csv, Line},
-  split_and_send(Consumer, Cols, Rest);
-
-split_and_send(_Consumer, _Cols, Rest) ->
-  Rest.
       
   
 next(_Reader, _Count) ->
