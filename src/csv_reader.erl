@@ -108,7 +108,7 @@ start_loader0(Path, Options, Parent) ->
 
 
 loader(#loader{file = F, client = Client, offset = Offset, pattern = Pattern} = Loader) ->
-  case file:pread(F, Offset, 128*1024) of
+  case file:pread(F, Offset, 256*1024) of
     {ok, Bin} ->
       {Lines, Rest} = split_lines(Bin, Pattern),
       ?D({loader, size(Bin), length(Lines), size(Rest)}),
@@ -127,6 +127,7 @@ split_lines(Bin, Acc, Pattern) ->
     {undefined, Rest} ->
       {lists:reverse(Acc), Rest};
     {Line, Rest} ->
+      % ?D(Line),
       split_lines(Rest, [Line|Acc], Pattern)
   end.
 

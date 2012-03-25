@@ -35,6 +35,8 @@ typedef struct {
 
 ErlNifResourceType *CSVResource;
 
+ERL_NIF_TERM am_undefined;
+
 #define PATH_SIZE 1024
 
 static void 
@@ -51,6 +53,7 @@ static int
 load(ErlNifEnv* env, void** priv, ERL_NIF_TERM load_info)
 {
   CSVResource = enif_open_resource_type(env, NULL, "csv_resource", csv_destructor, ERL_NIF_RT_CREATE|ERL_NIF_RT_TAKEOVER, NULL);
+  am_undefined = enif_make_atom(env, "undefined");
   return 0;
 }
 // 
@@ -381,12 +384,67 @@ parse_line(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
   if(!enif_inspect_binary(env, argv[1], &pattern)) return enif_make_badarg(env);
   
   int i;
-  for(i = 0; i < bin.size; i++) {
+  int idx = 0;
+  ERL_NIF_TERM header = enif_make_atom_len(env, (const char *)(pattern.data+1), pattern.data[0]);
+  unsigned char *ptr = pattern.data + pattern.data[0] + 1;
+  int out_size = *ptr; ptr++;
+  
+  ERL_NIF_TERM reply[out_size];
+  reply[0] = header;
+  for(i = 1; i < out_size; i++) {
+    reply[i] = am_undefined;
+  }
+  
+  int count = *ptr; ptr++;
+  i = 0;
+  for(idx = 0; idx < count; idx++) {
+    unsigned char out_pos = ptr[0];
+    if(out_pos == 0) return enif_make_badarg(env);
+    if(out_pos != 255) out_pos--;
+    int filter = ptr[1];
+    ptr += 3;
+    
+    unsigned char *start = bin.data+i;
+    int start_pos = i;
+    
+    while(i < bin.size && bin.data[i] != '\n' && bin.data[i] != ',') {
+      i++;
+    }
+    
+    if(i == bin.size) {
+      return enif_make_tuple2(env, enif_make_atom(env, "undefined"), argv[0]);
+    }
+    
+    if(bin.data[i] == ',' || bin.data[i] == '\n') {
+      // fprintf(stderr, "Field %d %d(%c), %d/%lu\r\n", idx, out_pos, filter, i, bin.size);
+      if(out_pos != 255) {
+        if(filter == 'f') {
+          double value = strtod((const char *)start, NULL);
+          reply[out_pos] = enif_make_double(env, value);
+        } else {
+          // fprintf(stderr, "Binary %d %d\r\n", out_pos, i - start_pos);
+          
+          // Subbinary is faster. On 300 K lines it takes 3500 ms with copy and 1900 ms with subbinary
+          
+          // ErlNifBinary field;
+          // enif_alloc_binary(i - start_pos, &field);
+          // memcpy(field.data, start, i - start_pos);
+          // reply[out_pos] = enif_make_binary(env, &field);
+          reply[out_pos] = enif_make_sub_binary(env, argv[0], start_pos, i-start_pos);
+        }
+      }
+    }
+    
     if(bin.data[i] == '\n') {
-      ERL_NIF_TERM line = enif_make_sub_binary(env, argv[0], 0, i);
+      // ERL_NIF_TERM line = enif_make_sub_binary(env, argv[0], 0, i);
+      ERL_NIF_TERM line = enif_make_tuple_from_array(env, reply, out_size);
       ERL_NIF_TERM rest = enif_make_sub_binary(env, argv[0], i+1, bin.size - i - 1);
+      // fprintf(stderr, "Replying line\r\n");
       return enif_make_tuple2(env, line, rest);
     }
+
+    if(bin.data[i] == ',') i++;
+    
   }
   return enif_make_tuple2(env, enif_make_atom(env, "undefined"), argv[0]);
 }
