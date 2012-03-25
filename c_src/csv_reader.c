@@ -369,16 +369,21 @@ load(ErlNifEnv* env, void** priv, ERL_NIF_TERM load_info)
 // }
 
 
+typedef struct Pattern {
+  // ERL_NIF_TERM header
+} Pattern;
+
 static ERL_NIF_TERM
 parse_line(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-  ErlNifBinary bin;
+  ErlNifBinary bin, pattern;
   if(!enif_inspect_binary(env, argv[0], &bin)) return enif_make_badarg(env);
+  if(!enif_inspect_binary(env, argv[1], &pattern)) return enif_make_badarg(env);
   
   int i;
   for(i = 0; i < bin.size; i++) {
     if(bin.data[i] == '\n') {
-      ERL_NIF_TERM line = enif_make_sub_binary(env, argv[0], 0, i-1);
+      ERL_NIF_TERM line = enif_make_sub_binary(env, argv[0], 0, i);
       ERL_NIF_TERM rest = enif_make_sub_binary(env, argv[0], i+1, bin.size - i - 1);
       return enif_make_tuple2(env, line, rest);
     }
@@ -392,7 +397,7 @@ static ErlNifFunc csv_funcs[] =
   // {"csv_next", 1, csv_next},
   // {"csv_next_batch", 2, csv_next_batch},
   // {"date_to_ms_nif", 7, date_to_ms}
-  {"parse_line", 1, parse_line}
+  {"parse_line", 2, parse_line}
 };
 
 
