@@ -1,5 +1,5 @@
 #!/usr/bin/env escript
-%%! -pa ebin
+%%! -pa ebin -smp enable +K true +A 8
 
 -mode(compile).
 
@@ -36,7 +36,22 @@ main([Path]) ->
   % Events = fprof:apply(fun() -> load(F) end, []),
   _Events = load(F),
   T2 = erlang:now(),
-  io:format("Load time: ~p~n", [timer:now_diff(T2, T1) div 1000]),
+  io:format("NIF: ~p~n", [timer:now_diff(T2, T1) div 1000]),
+  
+  % T3 = erlang:now(),
+  % 
+  % erfc_4180:parse_file("rfc.csv", [
+  % {4,float},{5,float},{6,float},{7,float},{8,float},
+  % {9,float},{10,float},{11,float},{12,float},{13,float},
+  % {14,float},{15,float},{16,float},{17,float},{18,float},
+  % {19,float},{20,float},{21,float},{22,float},{23,float},
+  % {24,float},{25,float},{26,float},{27,float},{28,float},
+  % {29,float},{30,float},{31,float},{32,float},{33,float},
+  % {34,float},{35,float},{36,float},{37,float},{38,float},
+  % {39,float},{40,float},{41,float},{42,float},{43,float}
+  % ]),
+  % T4 = erlang:now(),
+  % io:format("RFC: ~p~n", [timer:now_diff(T4,T3) div 1000]),
   % fprof:profile(),
   % fprof:analyse(),
   ok.
@@ -45,9 +60,12 @@ load(F) ->
   case csv_reader:next(F, 100) of
     undefined ->
       ok;
-    Events when is_list(Events) ->
-      ets:insert(entries, Events),
-      load(F)
+    % Events when is_list(Events) ->
+    %   % ets:insert(entries, Events),
+    %   load(F);
+    Evt ->
+      % io:format("~p~n", [Evt]),
+      load(F)  
     % #evt{type = Type, date = Date, time = Time, offset = GMTOfft} = Event ->
       % {YY,MM,DD} = Date,
       % {H,M,S,MS} = Time,

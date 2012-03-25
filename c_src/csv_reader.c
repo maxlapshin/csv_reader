@@ -23,7 +23,9 @@ typedef enum {
 } Filter;
 
 typedef struct {
-  FILE *f;
+  int fd;
+  size_t len;
+  char *start, *ptr;
   int map[MAX_FIELDS];
   Filter filters[MAX_FIELDS];
   int filters_addons[MAX_FIELDS];
@@ -39,8 +41,10 @@ static void
 csv_destructor(ErlNifEnv* env, void *obj)
 {
   CSV *csv = (CSV *)obj;
-  if(csv->f) fclose(csv->f);
-  csv->f = NULL;
+  if(csv->fd > 0) close(csv->fd);
+  if(csv->start) munmap(csv->start, csv->len);
+  csv->start = NULL;
+  csv->fd = -1;
 }
 
 static int
@@ -77,14 +81,26 @@ csv_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
       csv->filters_addons[i] = -1;
     }
   }
-  
-  csv->f = fopen(path, "r");
-  if(!csv->f) {
+  csv->fd = open(path, O_RDONLY);
+  if(csv->fd < 0) {
     enif_release_resource(csv);
     return enif_make_tuple2(env, enif_make_atom(env, "error"), enif_make_string(env, "Couldn't open file", ERL_NIF_LATIN1));
   }
+  struct stat st;
+  fstat(csv->fd, &st);
+  csv->len = (size_t)st.st_size;
+  if((csv->start = mmap(NULL, csv->len, PROT_READ, MAP_SHARED, csv->fd, 0)) == MAP_FAILED) {
+    close(csv->fd);
+    csv->fd = -1;
+    enif_release_resource(csv);
+    return enif_make_tuple2(env, enif_make_atom(env, "error"), enif_make_string(env, "Couldn't mmap file", ERL_NIF_LATIN1));    
+  }
+  csv->ptr = csv->start;
+  
   char buf[2048];
-  fgets(buf, sizeof(buf), csv->f);
+  char *eol = strchr(csv->ptr, '\n');
+  strncpy(buf, csv->ptr, eol - csv->ptr);
+  csv->ptr = eol + 1;
   while((buf[strlen(buf)] == '\r' || buf[strlen(buf)] == '\n') && strlen(buf) > 0) {
     buf[strlen(buf)] = 0;
   }
@@ -107,8 +123,9 @@ csv_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     // fprintf(stderr, "Adding CSV field '%s'\r\n", names[i]);
     i++;
     if(i == MAX_FIELDS - 1) {
-      fclose(csv->f);
-      csv->f = NULL;
+      close(csv->fd);
+      munmap(csv->start, csv->len);
+      csv->start = NULL;
       return enif_make_tuple2(env, enif_make_atom(env, "error"), enif_make_atom(env, "too_many_fields"));
     }
   }
@@ -194,11 +211,15 @@ csv_next(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     return enif_make_badarg(env);
   }
   
-  if(!fgets(buf, sizeof(buf), csv->f)) {
+  if(csv->len - (csv->ptr - csv->start) < 10) {
     return enif_make_atom(env, "undefined");
   }
   
-  int len = strlen(buf);
+  char *eol = strchr(csv->ptr, '\n');
+  int len = eol - csv->ptr;
+  strncpy(buf, csv->ptr, len);
+  csv->ptr = eol + 1;
+  
   while(len > 0 && (buf[len - 1] == '\r' || buf[len-1] == '\n')) {
     buf[len -1] = 0;
     len--;
