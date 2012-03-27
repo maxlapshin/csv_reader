@@ -371,10 +371,23 @@ load(ErlNifEnv* env, void** priv, ERL_NIF_TERM load_info)
 //   return enif_make_uint64(env, (ErlNifUInt64)(t*1000 + ms));
 // }
 
+#define D2(s) (((s)[0] - '0')*10 + ((s)[1] - '0'))
+#define D3(s) (((s)[0] - '0')*100 + D2((s)+1))
+#define D4(s) (D2(s)*100 + D2(s+2))
 
 typedef struct Pattern {
   // ERL_NIF_TERM header
 } Pattern;
+
+static int c_year = -1;
+static int c_month = -1;
+static int c_day = -1;
+static int c_hour = -1;
+static int c_minute = -1;
+static int c_second = -1;
+static int c_milli = -1;
+static int c_day_second = -1;
+static time_t c_utc = -1;
 
 static ERL_NIF_TERM
 parse_line(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
@@ -397,12 +410,19 @@ parse_line(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
   
   int count = *ptr; ptr++;
   i = 0;
+  
+  int date_pos = -1;
+  int time_pos = -1;
+  int utc_pos = -1;
+  int year,month,day,hour,minute,second,milli,offset;
+  year = month = day = hour = minute = second = milli = offset = 0;
+  
   for(idx = 0; idx < count; idx++) {
     unsigned char out_pos = ptr[0];
     if(out_pos == 0) return enif_make_badarg(env);
     if(out_pos != 255) out_pos--;
     int filter = ptr[1];
-    ptr += 3;
+    ptr += 2;
     
     unsigned char *start = bin.data+i;
     int start_pos = i;
@@ -421,6 +441,27 @@ parse_line(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         if(filter == 'f') {
           double value = strtod((const char *)start, NULL);
           reply[out_pos] = enif_make_double(env, value);
+        } else if(filter == 'd') {
+          date_pos = out_pos;
+          year = D4(start);
+          month = D2(start+4);
+          day = D2(start+6);
+          // fprintf(stderr, "Date: %.*s -> %d/%d/%d\r\n", i - start_pos, start, year, month, day);
+          
+          // sscanf((char *)start, "%4d%02d%02d", &year, &month, &day);
+        } else if(filter == 't') {
+          time_pos = out_pos;
+          hour = D2(start);
+          minute = D2(start + 2 + 1);
+          second = D2(start + 2 + 1 + 2 + 1);
+          milli = D3(start + 2 + 1 + 2 + 1 + 2 + 1);
+          // fprintf(stderr, "Time: %.*s -> %d:%d:%d.%d\r\n", i - start_pos, start, hour, minute, second, milli);
+          // sscanf((char *)start, "%02d:%02d:%02d.%03d", &hour, &minute, &second, &milli);
+        } else if(filter == 'g') {
+          utc_pos = out_pos;
+          offset = (start[1] - '0')*(start[0] == '+' ? 1 : -1);
+          // fprintf(stderr, "Offset: %.*s -> %d\r\n", i - start_pos, start, offset);
+          // sscanf((char *)start, "%d", &offset);
         } else {
           // fprintf(stderr, "Binary %d %d\r\n", out_pos, i - start_pos);
           
@@ -436,6 +477,58 @@ parse_line(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     }
     
     if(bin.data[i] == '\n') {
+      if(date_pos != -1 && time_pos != -1 && utc_pos != -1) {
+        time_t utc = 0;
+        
+        if((c_utc == -1) || (c_year != year) || (c_month != month) || (c_day != day)) {
+          fprintf(stderr, "Cache miss: %d,%d;  %d,%d;  %d,%d, %ld\r\n", c_year,year, c_month,month, c_day, day, c_utc);
+
+          struct tm timeptr;
+          timeptr.tm_sec = second; c_second = second;
+          timeptr.tm_min = minute; c_minute = minute;
+          timeptr.tm_hour = hour; c_hour = hour;
+          timeptr.tm_mday = day; c_day = day;
+          timeptr.tm_mon = month-1; c_month = month;
+          timeptr.tm_year = year - 1900; c_year = year;
+          timeptr.tm_gmtoff = offset*3600;
+          c_milli = milli;
+          // time_t utc = 0;
+          utc = timegm(&timeptr);
+          
+          c_utc = utc;
+          c_day_second = (hour*3600 + minute*60 + second);
+        } else {
+          int delta = (hour*3600 + minute*60 + second) - offset*3600 - c_day_second;
+          utc = c_utc + delta;
+        }
+        
+        
+        // char buf[1024];
+        // snprintf(buf, sizeof(buf), "%4d/%02d/%02d %02d:%02d:%02d.%03d", year, month, day, hour - offset, minute, second, milli);
+        //       
+        // ErlNifBinary time_bin;
+        // enif_alloc_binary(strlen(buf), &time_bin);
+        // memcpy(time_bin.data, buf, strlen(buf));
+        // reply[time_pos] = enif_make_binary(env, &time_bin);
+        
+        
+        // reply[date_pos] = enif_make_tuple2(env,
+        //   enif_make_tuple3(env, 
+        //     enif_make_int(env, year),
+        //     enif_make_int(env, month),
+        //     enif_make_int(env, day)
+        //   ),
+        //   enif_make_tuple4(env,
+        //     enif_make_int(env, hour),
+        //     enif_make_int(env, minute),
+        //     enif_make_int(env, second),
+        //     enif_make_int(env, milli)
+        //   )
+        // );
+        
+        reply[utc_pos] = enif_make_int(env, utc);
+      }
+      
       // ERL_NIF_TERM line = enif_make_sub_binary(env, argv[0], 0, i);
       ERL_NIF_TERM line = enif_make_tuple_from_array(env, reply, out_size);
       ERL_NIF_TERM rest = enif_make_sub_binary(env, argv[0], i+1, bin.size - i - 1);

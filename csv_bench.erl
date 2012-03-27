@@ -4,7 +4,7 @@
 -mode(compile).
 
 -record(evt, {
-key,date,time,
+key,date,time,utc,
 l_1,l_2,l_3,l_4,l_5,l_6,l_7,l_8,l_9,l_10,
 l_11,l_12,l_13,l_14,l_15,l_16,l_17,l_18,l_19,l_20,
 l_21,l_22,l_23,l_24,l_25,l_26,l_27,l_28,l_29,l_30,
@@ -17,8 +17,9 @@ main([Path]) ->
   
   {ok, F} = csv_reader:init(Path, [{header, evt}, {size, size(#evt{})},
     {"KEY", #evt.key, undefined},
-    {"Date", #evt.date, date, "Time"},
-    {"Time", #evt.time, time, "Date"},
+    {"Date", #evt.date, date},
+    {"Time", #evt.time, time},
+    {"GMT", #evt.utc, utc},
     
     {"l_1",#evt.l_1,float},{"l_2",#evt.l_2,float},{"l_3",#evt.l_3,float},{"l_4",#evt.l_4,float},{"l_5",#evt.l_5,float},
     {"l_6",#evt.l_6,float},{"l_7",#evt.l_7,float},{"l_8",#evt.l_8,float},{"l_9",#evt.l_9,float},{"l_10",#evt.l_10,float},
@@ -34,9 +35,10 @@ main([Path]) ->
   ets:new(entries, [public,named_table,{keypos,#evt.time}]),
   T1 = erlang:now(),
   % Events = fprof:apply(fun() -> load(F) end, []),
-  _Events = load(F),
+  Events = load(F),
   T2 = erlang:now(),
-  io:format("NIF: ~p~n", [timer:now_diff(T2, T1) div 1000]),
+  Time = timer:now_diff(T2, T1),
+  io:format("NIF: ~p, ~8.2. f us per line~n", [Time div 1000, Time / Events]),
   
   % T3 = erlang:now(),
   % 
@@ -57,15 +59,18 @@ main([Path]) ->
   ok.
 
 load(F) ->
+  load(F, 0).
+
+load(F, Acc) ->
   case csv_reader:next(F, 100) of
     undefined ->
-      ok;
+      Acc;
     % Events when is_list(Events) ->
     %   % ets:insert(entries, Events),
     %   load(F);
-    Evt ->
+    Evt when is_number(Evt)->
       % io:format("~p~n", [Evt]),
-      load(F)  
+      load(F, Acc + Evt)  
     % #evt{type = Type, date = Date, time = Time, offset = GMTOfft} = Event ->
       % {YY,MM,DD} = Date,
       % {H,M,S,MS} = Time,

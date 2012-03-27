@@ -2,6 +2,7 @@
 
 -on_load(init_nif/0).
 -define(D(X), io:format("~p:~p ~p~n", [?MODULE, ?LINE, X])).
+% -define(D(X), ok).
 
 -export([init/2, next/2]).
 -export([date_to_ms/2]).
@@ -42,7 +43,8 @@ init(Path, Options) ->
   header,
   pattern,
   cols,
-  client
+  client,
+  parent
 }).
 
 
@@ -55,21 +57,19 @@ parse_line(Bin, _Pattern) ->
 filter(float) -> $f;
 filter(date) -> $d;
 filter(time) -> $t;
+filter(utc) -> $g;
 filter(_) -> $u.
 
 compile_pattern(Cols1, Options) ->
   Cols = [binary_to_list(H) || H <- Cols1],
   Record = atom_to_binary(proplists:get_value(header, Options, csv), latin1),
   RecordSize = proplists:get_value(size, Options, length(Cols) + 1),
-  Index = lists:zip(Cols, lists:seq(0, length(Cols) - 1)),
   Map = lists:map(fun(H) ->
     case lists:keyfind(H, 1, Options) of
       {H, OutPos, Filter} ->
-        <<OutPos, (filter(Filter)), -1>>;
-      {H, OutPos, Filter, Add} ->
-        <<OutPos, (filter(Filter)), (proplists:get_value(Add, Index, -1))>>;
+        <<OutPos, (filter(Filter))>>;
       false ->
-        <<-1, $s, -1>>  
+        <<-1, $s>>
     end    
   end, Cols),
   iolist_to_binary([<<(size(Record)), Record/binary, RecordSize, (length(Map))>>, Map]).
@@ -107,11 +107,12 @@ start_loader0(Path, Options, Parent) ->
     offset = size(Header1),
     cols = length(Header),
     pattern = Pattern,
-    client = Parent
+    client = Parent,
+    parent = self()
   },
   
   Loaders = [
-    proc_lib:start_link(?MODULE, start_subloader, [Loader#loader{offset = Offset, limit = Limit, client = self()}])
+    proc_lib:start_link(?MODULE, start_subloader, [Loader#loader{offset = Offset, limit = Limit}]) % , client = self()
   || {Offset, Limit} <- Chunks],
   
   [erlang:monitor(process, Pid) || Pid <- Loaders],
@@ -133,9 +134,10 @@ detect_chunks(F, Offset, ChunkSize, FileSize, Acc) ->
   ?D({chunk, Offset, Pos - Offset}),
   detect_chunks(F, Pos, ChunkSize, FileSize, [{Offset, Pos}|Acc]).
   
-start_subloader(#loader{file = Path, client = Parent} = Loader) ->
+start_subloader(#loader{file = Path, parent = Parent} = Loader) ->
   proc_lib:init_ack(Parent, self()),
   {ok, F} = file:open(Path, [binary,read,raw]),
+  ?D({start, self()}),
   loader(Loader#loader{file = F}).
 
 loader(#loader{offset = Offset, limit = Limit} = _Loader) when Offset >= Limit ->
@@ -149,7 +151,8 @@ loader(#loader{file = F, client = Client, offset = Offset, limit = Limit, patter
       {Lines, Rest} = split_lines(Bin, Pattern),
       % ?D({loader, self(), Offset, Size, Limit, size(Bin), length(Lines), size(Rest)}),
       ?D({loader, self(), Offset, size(Bin), length(Lines), size(Rest)}),
-      % Client ! {csv, Lines},
+      % ?D(Lines),
+      Client ! {csv, length(Lines)},
       if Size == size(Rest) ->
         ?D({loader, self(), eof}),
         ok;
