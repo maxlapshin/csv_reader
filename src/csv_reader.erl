@@ -32,7 +32,6 @@ init_nif() ->
 init(Path, Options) ->
   % {ok, Reader} = csv_open(Path, Options),
   % {ok, Reader}.
-  ets:new(csv_entries, [public, named_table]),
   {ok, Reader} = proc_lib:start(?MODULE, start_loader, [Path, Options, self()]),
   {ok, Reader}.
 
