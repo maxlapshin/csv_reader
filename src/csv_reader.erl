@@ -99,7 +99,7 @@ start_loader0(Path, Options, Parent) ->
   LoaderCount = 4,
   {ok, FileSize} = file:position(F, eof),
   ChunkSize = FileSize div LoaderCount,
-  Chunks = detect_chunks(F,  size(Header1), ChunkSize, FileSize - size(Header1), []),
+  Chunks = detect_chunks(F,  size(Header1), ChunkSize, FileSize, [], LoaderCount),
   file:close(F),
   
   LoadFun = proplists:get_value(loader, Options, fun(Lines) ->
@@ -130,18 +130,15 @@ start_loader0(Path, Options, Parent) ->
   Parent ! {eof, self(), TotalCount},
   ok.
 
-detect_chunks(_F, Offset, _ChunkSize, FileSize, Acc) when Offset + 10 > FileSize ->
-  lists:reverse(Acc);
-
-detect_chunks(_F, Offset, ChunkSize, FileSize, Acc) when Offset + ChunkSize*1.3 >= FileSize ->
+detect_chunks(_F, Offset, _ChunkSize, FileSize, Acc, 1) ->
   lists:reverse([{Offset, FileSize}|Acc]);
 
-detect_chunks(F, Offset, ChunkSize, FileSize, Acc) ->
+detect_chunks(F, Offset, ChunkSize, FileSize, Acc, LoaderCount) when LoaderCount > 1 ->
   file:position(F, Offset + ChunkSize),
   file:read_line(F),
   {ok, Pos} = file:position(F, {cur, 0}),
   % ?D({chunk, Offset, Pos - Offset}),
-  detect_chunks(F, Pos, ChunkSize, FileSize, [{Offset, Pos}|Acc]).
+  detect_chunks(F, Pos, ChunkSize, FileSize, [{Offset, Pos}|Acc], LoaderCount - 1).
   
 start_subloader(#loader{file = Path, parent = Parent} = Loader) ->
   proc_lib:init_ack(Parent, self()),
@@ -150,7 +147,7 @@ start_subloader(#loader{file = Path, parent = Parent} = Loader) ->
   loader(Loader#loader{file = F}).
 
 loader(#loader{offset = Offset, count = Count, limit = Limit, parent = Parent} = _Loader) when Offset >= Limit ->
-  ?D({loader, self(), finish, Count}),
+  % ?D({loader, self(), finish, Count}),
   Parent ! {eof, self(), Count},
   ok;
 
@@ -163,9 +160,13 @@ loader(#loader{file = F, offset = Offset, limit = Limit, pattern = Pattern, load
       % ?D({loader, self(), Offset, size(Bin), length(Lines), size(Rest)}),
       % ?D(Lines),
       Fun(Lines),
-      if Size == size(Rest) ->
-        ?D({loader, self(), eof, Count}),
-        Parent ! {eof, self(), Count},
+      if Size == Limit - Offset andalso size(Rest) > 0 ->
+        {Lines1, _} = split_lines(<<Rest/binary, "\n">>, Pattern),
+        Fun(Lines1),
+        ?D({refetched, Rest, Lines1}),
+        Count1 = Count + length(Lines) + length(Lines1),
+        ?D({loader, self(), eof, Count1}),
+        Parent ! {eof, self(), Count1},
         ok;
       true ->  
         loader(Loader#loader{offset = Offset + size(Bin) - size(Rest), count = length(Lines) + Count})
