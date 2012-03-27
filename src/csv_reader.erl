@@ -56,6 +56,7 @@ parse_line(Bin, _Pattern) ->
   end.
 
 filter(float) -> $f;
+filter(int) -> $i;
 filter(date) -> $d;
 filter(time) -> $t;
 filter(utc) -> $g;

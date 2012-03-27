@@ -441,6 +441,8 @@ parse_line(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         if(filter == 'f') {
           double value = strtod((const char *)start, NULL);
           reply[out_pos] = enif_make_double(env, value);
+        } else if(filter == 'i') {
+          reply[out_pos] = enif_make_int(env, atoi((char *)start));
         } else if(filter == 'd') {
           date_pos = out_pos;
           year = D4(start);
