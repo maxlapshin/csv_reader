@@ -150,7 +150,7 @@ loader(#loader{file = F, client = Client, offset = Offset, limit = Limit, patter
     {ok, Bin} ->
       {Lines, Rest} = split_lines(Bin, Pattern),
       % ?D({loader, self(), Offset, Size, Limit, size(Bin), length(Lines), size(Rest)}),
-      ?D({loader, self(), Offset, size(Bin), length(Lines), size(Rest)}),
+      % ?D({loader, self(), Offset, size(Bin), length(Lines), size(Rest)}),
       % ?D(Lines),
       Client ! {csv, length(Lines)},
       if Size == size(Rest) ->
