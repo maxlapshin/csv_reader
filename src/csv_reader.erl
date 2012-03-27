@@ -162,7 +162,7 @@ loader(#loader{file = F, offset = Offset, limit = Limit, pattern = Pattern, load
       % ?D({loader, self(), Offset, Size, Limit, size(Bin), length(Lines), size(Rest)}),
       % ?D({loader, self(), Offset, size(Bin), length(Lines), size(Rest)}),
       % ?D(Lines),
-      % Fun(Lines),
+      Fun(Lines),
       if Size == size(Rest) ->
         ?D({loader, self(), eof, Count}),
         Parent ! {eof, self(), Count},
