@@ -481,7 +481,7 @@ parse_line(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         time_t utc = 0;
         
         if((c_utc == -1) || (c_year != year) || (c_month != month) || (c_day != day)) {
-          fprintf(stderr, "Cache miss: %d,%d;  %d,%d;  %d,%d, %ld\r\n", c_year,year, c_month,month, c_day, day, c_utc);
+          // fprintf(stderr, "Cache miss: %d,%d;  %d,%d;  %d,%d, %ld\r\n", c_year,year, c_month,month, c_day, day, c_utc);
 
           struct tm timeptr;
           timeptr.tm_sec = second; c_second = second;
