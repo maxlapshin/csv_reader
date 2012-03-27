@@ -386,7 +386,7 @@ static int c_hour = -1;
 static int c_minute = -1;
 static int c_second = -1;
 static int c_milli = -1;
-static int c_day_second = -1;
+static int c_month_second = -1;
 static time_t c_utc = -1;
 
 static ERL_NIF_TERM
@@ -480,25 +480,28 @@ parse_line(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
       if(date_pos != -1 && time_pos != -1 && utc_pos != -1) {
         time_t utc = 0;
         
-        if((c_utc == -1) || (c_year != year) || (c_month != month) || (c_day != day)) {
-          // fprintf(stderr, "Cache miss: %d,%d;  %d,%d;  %d,%d, %ld\r\n", c_year,year, c_month,month, c_day, day, c_utc);
+        if((c_utc == -1) || (c_year != year) || (c_month != month)) {
+          // fprintf(stderr, "Cache miss: %d,%d;  %d,%d;  %ld\r\n", c_year,year, c_month,month, c_utc);
 
           struct tm timeptr;
+          
+          // hour -= offset*3600;
+          
           timeptr.tm_sec = second; c_second = second;
           timeptr.tm_min = minute; c_minute = minute;
           timeptr.tm_hour = hour; c_hour = hour;
           timeptr.tm_mday = day; c_day = day;
           timeptr.tm_mon = month-1; c_month = month;
           timeptr.tm_year = year - 1900; c_year = year;
-          timeptr.tm_gmtoff = offset*3600;
+          timeptr.tm_gmtoff = 0;
           c_milli = milli;
           // time_t utc = 0;
           utc = timegm(&timeptr);
           
           c_utc = utc;
-          c_day_second = (hour*3600 + minute*60 + second);
+          c_month_second = day *86400 + hour*3600 + minute*60 + second;
         } else {
-          int delta = (hour*3600 + minute*60 + second) - offset*3600 - c_day_second;
+          int delta = (day*86400 + hour*3600 + minute*60 + second) - c_month_second;
           utc = c_utc + delta;
         }
         
@@ -506,7 +509,7 @@ parse_line(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         
         
         char buf[1024];
-        snprintf(buf, sizeof(buf), "%4d/%02d/%02d %02d:%02d:%02d.%03d", year, month, day, hour - offset, minute, second, milli);
+        snprintf(buf, sizeof(buf), "%4d/%02d/%02d %02d:%02d:%02d.%03d", year, month, day, hour, minute, second, milli);
               
         ErlNifBinary time_bin;
         enif_alloc_binary(strlen(buf), &time_bin);
