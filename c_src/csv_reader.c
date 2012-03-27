@@ -502,31 +502,33 @@ parse_line(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
           utc = c_utc + delta;
         }
         
-        
-        // char buf[1024];
-        // snprintf(buf, sizeof(buf), "%4d/%02d/%02d %02d:%02d:%02d.%03d", year, month, day, hour - offset, minute, second, milli);
-        //       
-        // ErlNifBinary time_bin;
-        // enif_alloc_binary(strlen(buf), &time_bin);
-        // memcpy(time_bin.data, buf, strlen(buf));
-        // reply[time_pos] = enif_make_binary(env, &time_bin);
+        utc = utc*1000 + milli;
         
         
-        // reply[date_pos] = enif_make_tuple2(env,
-        //   enif_make_tuple3(env, 
-        //     enif_make_int(env, year),
-        //     enif_make_int(env, month),
-        //     enif_make_int(env, day)
-        //   ),
-        //   enif_make_tuple4(env,
-        //     enif_make_int(env, hour),
-        //     enif_make_int(env, minute),
-        //     enif_make_int(env, second),
-        //     enif_make_int(env, milli)
-        //   )
-        // );
+        char buf[1024];
+        snprintf(buf, sizeof(buf), "%4d/%02d/%02d %02d:%02d:%02d.%03d", year, month, day, hour - offset, minute, second, milli);
+              
+        ErlNifBinary time_bin;
+        enif_alloc_binary(strlen(buf), &time_bin);
+        memcpy(time_bin.data, buf, strlen(buf));
+        reply[time_pos] = enif_make_binary(env, &time_bin);
         
-        reply[utc_pos] = enif_make_int(env, utc);
+        
+        reply[date_pos] = enif_make_tuple2(env,
+          enif_make_tuple3(env, 
+            enif_make_int(env, year),
+            enif_make_int(env, month),
+            enif_make_int(env, day)
+          ),
+          enif_make_tuple4(env,
+            enif_make_int(env, hour),
+            enif_make_int(env, minute),
+            enif_make_int(env, second),
+            enif_make_int(env, milli)
+          )
+        );
+        
+        reply[utc_pos] = enif_make_long(env, utc);
       }
       
       // ERL_NIF_TERM line = enif_make_sub_binary(env, argv[0], 0, i);
