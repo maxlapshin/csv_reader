@@ -35,10 +35,10 @@ main([Path]) ->
   ets:new(entries, [public,named_table,{keypos,#evt.time}]),
   T1 = erlang:now(),
   % Events = fprof:apply(fun() -> load(F) end, []),
-  Events = load(F),
+  {ok, Count} = csv_reader:wait(F),
   T2 = erlang:now(),
   Time = timer:now_diff(T2, T1),
-  io:format("NIF: ~p, ~8.2. f us per line~n", [Time div 1000, Time / Events]),
+  io:format("NIF: ~p, ~8.2. f us per line~n", [Time div 1000, Time / Count]),
   
   % T3 = erlang:now(),
   % 
