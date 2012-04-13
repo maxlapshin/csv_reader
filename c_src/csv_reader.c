@@ -511,7 +511,8 @@ parse_line(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         
         
         char buf[1024];
-        snprintf(buf, sizeof(buf), "%4d/%02d/%02d %02d:%02d:%02d.%03d", year, month, day, hour, minute, second, milli);
+        // snprintf(buf, sizeof(buf), "%4d/%02d/%02d %02d:%02d:%02d.%03d", year, month, day, hour, minute, second, milli);
+        snprintf(buf, sizeof(buf), "%4d/%02d/%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
               
         ErlNifBinary time_bin;
         enif_alloc_binary(strlen(buf), &time_bin);

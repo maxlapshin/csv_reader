@@ -25,7 +25,10 @@ date_to_ms_nif(YY, MM, DD, H, M, S, MS) ->
 init_nif() ->
   Path = filename:dirname(code:which(?MODULE)) ++ "/../priv",
   Load = erlang:load_nif(Path ++ "/csv_reader", 0),
-  io:format("Load csv_reader: ~p~n", [Load]),
+  case Load of
+    ok -> ok;
+    {error, {Reason,Text}} -> io:format("Load csv_reader failed. ~p:~p~n", [Reason, Text])
+  end,
   ok.
 
 
@@ -37,6 +40,8 @@ init(Path, Options) ->
 
 -record(loader, {
   file,
+  fd,
+  options = [],
   offset,
   limit,
   header,
@@ -45,7 +50,8 @@ init(Path, Options) ->
   client,
   loader,
   parent,
-  count = 0
+  count = 0,
+  buffer = <<>>
 }).
 
 
@@ -88,33 +94,49 @@ start_loader(Path, _Options, Parent) ->
       
 
 start_loader0(Path, Options, Parent) ->
-  
-  {ok, F} = file:open(Path, [raw, binary, {read_ahead, 1024*1024}]),
+  OpenOptions = case re:run(Path, "\\.gz$") of
+    nomatch -> [];
+    _ -> [compressed]
+  end,
+  {ok, F} = file:open(Path, [raw, binary, {read_ahead, 1024*1024}|OpenOptions]),
   proc_lib:init_ack(Parent, {ok, self()}),
   {ok, Header1} = file:read_line(F),
   [Header2, <<>>] = binary:split(Header1, [<<"\n">>]),
   Header = binary:split(Header2, [<<",">>], [global]),
   Pattern = compile_pattern(Header, Options),
   
-  LoaderCount = 4,
-  {ok, FileSize} = file:position(F, eof),
-  ChunkSize = FileSize div LoaderCount,
-  Chunks = detect_chunks(F,  size(Header1), ChunkSize, FileSize, [], LoaderCount),
-  file:close(F),
-  
   LoadFun = proplists:get_value(loader, Options, fun(Lines) ->
     Parent ! {csv, self(), length(Lines)}
   end),
-
-  ?D({init_loader,Path,self(), Header, Chunks}),
-  Loader = #loader{
+  
+  Loader1 = #loader{
     file = Path,
     header = Header,
     offset = size(Header1),
     cols = length(Header),
-    loader = LoadFun,
     pattern = Pattern,
-    client = Parent,
+    parent = Parent,
+    fd = F,
+    loader = LoadFun,
+    options = Options
+  },
+  
+  case OpenOptions of
+    [compressed] ->
+      single_thread_load(Loader1);
+    [] ->
+      multiple_thread_load(Loader1)
+  end.
+
+multiple_thread_load(#loader{fd = F, offset = FileOffset, parent = Parent} = Loader1) ->
+  
+  LoaderCount = 4,
+  {ok, FileSize} = file:position(F, eof),
+  ChunkSize = FileSize div LoaderCount,
+  Chunks = detect_chunks(F, FileOffset, ChunkSize, FileSize, [], LoaderCount),
+  file:close(F),
+  
+  Loader = Loader1#loader{
     parent = self()
   },
   
@@ -129,6 +151,20 @@ start_loader0(Path, Options, Parent) ->
   TotalCount = lists:sum(Counts) + 1,
   Parent ! {eof, self(), TotalCount},
   ok.
+
+single_thread_load(#loader{fd = F, buffer = Buffer, pattern = Pattern, loader = Fun, count = Count, parent = Parent} = Loader) ->
+  case file:read(F, 8192) of
+    {ok, Bin} ->
+      {Lines, Rest} = split_lines(<<Buffer/binary, Bin/binary>>, Pattern),
+      Fun(Lines),
+      single_thread_load(Loader#loader{buffer = Rest, count = Count + length(Lines)});
+    eof ->
+      {Lines, _} = split_lines(<<Buffer/binary, "\n">>, Pattern),
+      Fun(Lines),
+      Parent ! {eof, self(), Count + length(Lines)},
+      ok
+  end.    
+
 
 detect_chunks(_F, Offset, _ChunkSize, FileSize, Acc, 1) ->
   lists:reverse([{Offset, FileSize}|Acc]);
@@ -156,9 +192,6 @@ loader(#loader{file = F, offset = Offset, limit = Limit, pattern = Pattern, load
   case file:pread(F, Offset, Size) of
     {ok, Bin} ->
       {Lines, Rest} = split_lines(Bin, Pattern),
-      % ?D({loader, self(), Offset, Size, Limit, size(Bin), length(Lines), size(Rest)}),
-      % ?D({loader, self(), Offset, size(Bin), length(Lines), size(Rest)}),
-      % ?D(Lines),
       Fun(Lines),
       if Size == Limit - Offset andalso size(Rest) > 0 ->
         {Lines1, _} = split_lines(<<Rest/binary, "\n">>, Pattern),
