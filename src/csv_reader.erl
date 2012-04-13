@@ -158,6 +158,9 @@ single_thread_load(#loader{fd = F, buffer = Buffer, pattern = Pattern, loader = 
       {Lines, Rest} = split_lines(<<Buffer/binary, Bin/binary>>, Pattern),
       Fun(Lines),
       single_thread_load(Loader#loader{buffer = Rest, count = Count + length(Lines)});
+    {error, _Error} ->
+      Parent ! {eof, self(), Count},
+      ok;
     eof ->
       {Lines, _} = split_lines(<<Buffer/binary, "\n">>, Pattern),
       Fun(Lines),
