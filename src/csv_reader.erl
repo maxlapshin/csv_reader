@@ -84,21 +84,28 @@ compile_pattern(Cols1, Options) ->
 
 
 start_loader(Path, _Options, Parent) ->
-
   try start_loader0(Path, _Options, Parent) of
-    Result -> Result
+    Result -> Parent ! {csv_result, self(), Result}, Result
   catch
     Class:Error ->
-      ?D({failed_loader, Class, Error, erlang:get_stacktrace()})
+      ?D({failed_loader, Class, Error, erlang:get_stacktrace()}),
+      Parent ! {csv_result, self(), {error, {Error, Path}}}
   end.    
       
 
 start_loader0(Path, Options, Parent) ->
   OpenOptions = case re:run(Path, "\\.gz$") of
-    nomatch -> [];
+    nomatch -> [{read_ahead, 1024*1024}];
     _ -> [compressed]
   end,
-  {ok, F} = file:open(Path, [raw, binary, {read_ahead, 1024*1024}|OpenOptions]),
+  case file:open(Path, [raw, binary|OpenOptions]) of
+    {ok, F} ->
+      start_loader1(Path, Options, Parent, OpenOptions, F);
+    {error, Error} ->
+      {error, Error}
+  end.
+
+start_loader1(Path, Options, Parent, OpenOptions, F) ->
   proc_lib:init_ack(Parent, {ok, self()}),
   {ok, Header1} = file:read_line(F),
   [Header2, <<>>] = binary:split(Header1, [<<"\n">>]),
@@ -227,6 +234,22 @@ split_lines(Bin, Acc, Pattern) ->
 
 
 wait(Reader) ->
+  erlang:monitor(process, Reader),
   receive
+    {'DOWN', _, _, Reader, _} -> ok
+  end,
+  Result = receive
+    {csv_result, Reader, Res} -> Res
+  after
+    0 -> undefined
+  end,
+  Result1 = receive
     {eof, Reader, Count} -> {ok, Count}
+  after 
+    0 -> undefined      
+  end,
+  case Result1 of
+    undefined -> Result;
+    _ -> Result1
   end.
+
