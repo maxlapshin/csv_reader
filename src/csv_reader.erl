@@ -131,7 +131,7 @@ start_loader1(Path, Options, Parent, OpenOptions, F) ->
   case OpenOptions of
     [compressed] ->
       single_thread_load(Loader1);
-    [] ->
+    _ ->
       multiple_thread_load(Loader1)
   end.
 
