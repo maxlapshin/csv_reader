@@ -23,14 +23,9 @@
 
 main([Path]) ->
   code:add_pathz("./ebin"),
-  ets:new(csv_entries, [public,named_table,{keypos,#evt.time}]),
+  ETS = ets:new(csv_entries, [private,named_table,{keypos,#evt.time}]),
   
-  LoadFun = fun(Lines) -> 
-    ets:insert(csv_entries, Lines)
-  end,
-  
-  
-  {ok, F} = csv_reader:init(Path, [{header, evt}, {size, size(#evt{})}, {loader, LoadFun},
+  {ok, F} = csv_reader:init(Path, [{header, evt}, {size, size(#evt{})},
     {"#RIC", #evt.instrument, undefined}, {"<TICKER>", #evt.instrument, undefined},
     {"Date[G]", #evt.date, date}, {"<Date>", #evt.date, date},
     {"Time[G]", #evt.time, time}, {"<Time>", #evt.date, date},
@@ -50,9 +45,11 @@ main([Path]) ->
     {"L10-BidPrice",#evt.l10_bid_price,float},{"L10-BidSize",#evt.l10_bid_size,int},{"L10-AskPrice",#evt.l10_ask_price,float},{"L10-AskSize",#evt.l10_ask_size,int}
   ]),
   
+  Total = csv_reader:total_lines(F),
+  
   T1 = erlang:now(),
   % Events = fprof:apply(fun() -> load(F) end, []),
-  {ok, Count} = csv_reader:wait(F),
+  Count = loop(F, Total, 0, ETS),
   T2 = erlang:now(),
   Time = timer:now_diff(T2, T1),
   io:format("NIF: ~p, ~8.2. f us per line~n", [Time div 1000, Time / Count]),
@@ -75,3 +72,14 @@ main([Path]) ->
   % fprof:analyse(),
   ok.
  
+loop(F, Total, Count, ETS) ->
+  F2 = case csv_reader:next(F) of
+    {ok, Lines, F1} ->
+      io:format("~2.. B%~n", [Count*100 div Total]),
+      ets:insert(ETS, Lines),
+      loop(F1, Total, Count + length(Lines), ETS);
+    {eof, Count} ->
+      Count
+  end,
+  F2.
+
