@@ -76,8 +76,8 @@ compile_pattern(Cols1, Options) ->
 
 init(Path, Options) ->
   {OpenOptions, TotalCmd} = case re:run(Path, "\\.gz$") of
-    nomatch -> {[{read_ahead, 1024*1024}], "wc -l "++Path};
-    _ -> {[compressed], "gzcat "++Path++" | wc -l"}
+    nomatch -> {[{read_ahead, 1024*1024}], "wc -l \""++Path++"\""};
+    _ -> {[compressed], "gzcat \""++Path++"\" | wc -l"}
   end,
   {match, [Tot]} = re:run(os:cmd(TotalCmd), "(\\d+)", [{capture,all_but_first,list}]),
   Total = list_to_integer(Tot),
