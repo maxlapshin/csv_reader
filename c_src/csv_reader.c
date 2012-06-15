@@ -445,18 +445,25 @@ parse_line(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
           reply[out_pos] = enif_make_int(env, atoi((char *)start));
         } else if(filter == 'd') {
           date_pos = out_pos;
-          year = D4(start);
-          month = D2(start+4);
-          day = D2(start+6);
+          unsigned char *s_ = start;
+          year = D4(s_); s_ += 4; if(*s_ < '0' || *s_ > '9') s_++;
+          month = D2(s_); s_ += 2; if(*s_ < '0' || *s_ > '9') s_++;
+          day = D2(s_);
           // fprintf(stderr, "Date: %.*s -> %d/%d/%d\r\n", i - start_pos, start, year, month, day);
           
           // sscanf((char *)start, "%4d%02d%02d", &year, &month, &day);
         } else if(filter == 't') {
           time_pos = out_pos;
-          hour = D2(start);
-          minute = D2(start + 2 + 1);
-          second = D2(start + 2 + 1 + 2 + 1);
-          milli = D3(start + 2 + 1 + 2 + 1 + 2 + 1);
+          unsigned char *s_ = start;
+          hour = D2(s_); s_ += 3;
+          minute = D2(s_); s_ += 3;
+          second = D2(s_); s_ += 2;
+          if(*s_ == '.') {
+            s_++; 
+            milli = D3(s_);
+          } else {
+            milli = 0;
+          }
           // fprintf(stderr, "Time: %.*s -> %d:%d:%d.%d\r\n", i - start_pos, start, hour, minute, second, milli);
           // sscanf((char *)start, "%02d:%02d:%02d.%03d", &hour, &minute, &second, &milli);
         } else if(filter == 'g') {
@@ -479,7 +486,7 @@ parse_line(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     }
     
     if(bin.data[i] == '\n') {
-      if(date_pos != -1 && time_pos != -1 && utc_pos != -1) {
+      if(date_pos != -1 && time_pos != -1) {
         time_t utc = 0;
         
         if((c_utc == -1) || (c_year != year) || (c_month != month)) {
@@ -519,7 +526,6 @@ parse_line(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         memcpy(time_bin.data, buf, strlen(buf));
         reply[time_pos] = enif_make_binary(env, &time_bin);
         
-        
         reply[date_pos] = enif_make_tuple2(env,
           enif_make_tuple3(env, 
             enif_make_int(env, year),
@@ -534,7 +540,7 @@ parse_line(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
           )
         );
         
-        reply[utc_pos] = enif_make_long(env, utc);
+        if(utc_pos != -1) reply[utc_pos] = enif_make_long(env, utc);
       }
       
       // ERL_NIF_TERM line = enif_make_sub_binary(env, argv[0], 0, i);

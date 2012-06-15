@@ -6,6 +6,23 @@
 
 -export([init/2, next/1, total_lines/1]).
 -export([date_to_ms/2]).
+-export([foldl/4]).
+
+foldl(Fun, InitialState, CSVPath, Options) when is_function(Fun) andalso is_list(CSVPath) ->
+  {ok, Reader} = init(CSVPath, Options),
+  Total = total_lines(Reader),
+  State1 = Fun({init_total, Total}, InitialState),
+  foldl_0(Fun, State1, Reader).
+
+foldl_0(Fun, State, Reader) ->
+  case next(Reader) of
+    {ok, Lines, Reader1} ->
+      State1 = lists:foldl(Fun, State, [Line || Line <- Lines]),
+      foldl_0(Fun, State1, Reader1);
+    {eof, _} ->
+      Fun(eof, State)
+  end.
+
 
 date_to_ms({YY,MM,DD},{H,M,S,MS}) ->
   date_to_ms_nif(YY, MM, DD, H, M, S, MS);
