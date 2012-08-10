@@ -92,12 +92,16 @@ compile_pattern(Cols1, Options) ->
   iolist_to_binary([<<(size(Record)), Record/binary, RecordSize, (length(Map))>>, Map]).
 
 init(Path, Options) ->
+  SkipLines = lists:member(skip_lines, Options),
   {OpenOptions, TotalCmd} = case re:run(Path, "\\.gz$") of
+    nomatch when SkipLines -> {[{read_ahead, 1024*1024}], "echo 0"};
+    _ when SkipLines -> {[compressed], "echo 0"};
     nomatch -> {[{read_ahead, 1024*1024}], "wc -l \""++Path++"\""};
     _ -> {[compressed], "gzcat \""++Path++"\" | wc -l"}
   end,
   {match, [Tot]} = re:run(os:cmd(TotalCmd), "(\\d+)", [{capture,all_but_first,list}]),
   Total = list_to_integer(Tot),
+  ?D({skip_lines, SkipLines, Total}),
   case file:open(Path, [raw, binary|OpenOptions]) of
     {ok, F} ->
       start_loader1(Path, Options, F, Total);
