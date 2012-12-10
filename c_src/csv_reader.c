@@ -455,9 +455,15 @@ parse_line(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
         } else if(filter == 't') {
           time_pos = out_pos;
           unsigned char *s_ = start;
-          hour = D2(s_); s_ += 3;
-          minute = D2(s_); s_ += 3;
-          second = D2(s_); s_ += 2;
+          if(s_[2] == ':') {
+            hour = D2(s_); s_ += 3;
+            minute = D2(s_); s_ += 3;
+            second = D2(s_); s_ += 2;
+          } else {
+            hour = D2(s_); s_ += 2;
+            minute = D2(s_); s_ += 2;
+            second = D2(s_); s_ += 2;
+          }
           if(*s_ == '.') {
             s_++; 
             milli = D3(s_);
