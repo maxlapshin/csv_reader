@@ -1,11 +1,14 @@
 {application, csv_reader,
  [
-  {description, ""},
-  {vsn, "1"},
+  {description, "CSV Reader"},
+  {vsn, "1.0.0"},
   {registered, []},
   {applications, [
                   kernel,
                   stdlib
                  ]},
-  {env, []}
+  {env, []},
+  {maintainers, ["Paul Oliver"]},
+  {licenses, ["MIT"]},
+  {links, [{"Github", "https://github.com/puzza007/csv_reader"}]}
  ]}.
